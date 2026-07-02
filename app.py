@@ -119,8 +119,8 @@ if calculate_btn:
                 }])
                 
                 # Pipeline kendi içinde dönüşümleri yapıp tahmini üretiyor
-                predicted_gas = float(models["gas"].predict(input_df)[0])
-                predicted_elec = float(models["elec"].predict(input_df)[0])
+                predicted_gas = max(0.0, float(models["gas"].predict(input_df)[0]))
+                predicted_elec = max(0.0, float(models["elec"].predict(input_df)[0]))
                 
             else:
                 raise FileNotFoundError("Model dosyaları yüklenemedi. Klasör yollarını kontrol edin.")
@@ -188,9 +188,9 @@ if calculate_btn:
         
         with st.spinner("AI Ajanı reçeteyi analiz ediyor ve yeşil reçete önerileri hazırlıyor..."):
           ai_recommendations = generate_green_recommendation(
-    siparis_detaylari=agent_inputs,
-    mevcut_co2_kg=total_co2,
-    ecoscore_harfi=ecoscore_letter,
+          siparis_detaylari=agent_inputs,
+          mevcut_co2_kg=total_co2,
+          ecoscore_harfi=ecoscore_letter,
 )
 
             

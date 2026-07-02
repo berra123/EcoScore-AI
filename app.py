@@ -7,22 +7,31 @@ import plotly.graph_objects as go
 
 # Harici modül importları (Hata vermemesi için try-except bloğunda)
 try:
-    from src.calculator import calculate_carbon_footprint, get_ecoscore_grade
+    from src.calculator import calculate_carbon_footprint
 except ImportError:
     def calculate_carbon_footprint(gas, elec): return (gas * 2.1) + (elec * 0.45)
-    def get_ecoscore_grade(score): return "A" if score < 100 else "B"
+
+# EcoScore harf notu hesaplamasını Dentaş endüstri standartlarına göre dinamik hale getirdik
+def get_optimized_ecoscore_grade(co2_per_ton):
+    if co2_per_ton < 600:
+        return "A++"
+    elif co2_per_ton < 900:
+        return "A"
+    elif co2_per_ton < 1200:
+        return "B"
+    elif co2_per_ton < 1500:
+        return "C"
+    elif co2_per_ton < 1800:
+        return "D"
+    else:
+        return "E"
 
 try:
     from src.llm_agent import generate_green_recommendation
 except ImportError:
-   def generate_green_recommendation(
-    siparis_detaylari,
-    mevcut_co2_kg,
-    ecoscore_harfi,
-):
-    return """
-Gemini API bulunamadığı için demo modu çalışıyor.
-"""
+    def generate_green_recommendation(siparis_detaylari, mevcut_co2_kg, ecoscore_harfi):
+        return "\nGemini API bulunamadığı için demo modu çalışıyor.\n"
+
 # --- SAYFA AYARLARI ---
 st.set_page_config(
     page_title="EcoScore - Karbon Ayak İzi Tahminleme Motoru",
@@ -53,7 +62,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- MODEL YÜKLEME FONKSİYONU (SADELEŞTİRİLDİ) ---
+# --- MODEL YÜKLEME FONKSİYONU ---
 @st.cache_resource
 def load_models():
     models = {}
@@ -83,7 +92,12 @@ with st.sidebar:
     
     product_type = st.selectbox(
         "Ürün Tipi",
-        ["Oluklu Mukavva", "Viyol (Yumurta Kasası)", "Endüstriyel Viyol", "Kutu / Ambalaj"]
+        [
+            "Standart Yumurta Viyolu",
+            "Premium Meyve Viyolu",
+            "Endüstriyel Ambalaj Viyolu",
+            "Oluklu Mukavva Kutu",
+        ]
     )
     
     order_quantity = st.number_input("Sipariş Miktarı (Adet veya Toplam m²)*", min_value=1, value=10000, step=500)
@@ -102,45 +116,32 @@ with st.sidebar:
 # --- HESAPLAMA VE SONUÇ EKRANI ---
 if calculate_btn:
     
+    input_df = pd.DataFrame([{
+        "Urun_Tipi": product_type,
+        "Siparis_Adedi": order_quantity,
+        "Hedef_Gramaj_g": target_weight,
+        "Geri_Donusumlu_Kagit_Orani": recycled_ratio,
+        "Hammadde_Nem_Orani": moisture_content,
+        "Firin_Hizi_m_dk": oven_speed,
+        "Firin_Sicakligi_C": oven_temp,
+    }])
+    
     with st.spinner("ML Pipeline çalıştırılıyor, enerji tüketimi tahmin ediliyor..."):
         try:
-            # Sadece eğitilmiş gas ve elec pipeline modelleri kontrol ediliyor
             if models['gas'] is not None and models['elec'] is not None:
-                
-                # Sütun isimleri model_train.py ile tam uyumlu DataFrame yapısı
-                input_df = pd.DataFrame([{
-                    "Urun_Tipi": product_type,
-                    "Siparis_Adedi": order_quantity,
-                    "Hedef_Gramaj_g": target_weight,
-                    "Geri_Donusumlu_Kagit_Orani": recycled_ratio,
-                    "Hammadde_Nem_Orani": moisture_content,
-                    "Firin_Hizi_m_dk": oven_speed,
-                    "Firin_Sicakligi_C": oven_temp,
-                }])
-                
-                # Pipeline kendi içinde dönüşümleri yapıp tahmini üretiyor
+                # Debug çıktıları tamamen kaldırıldı, doğrudan tahminler atanıyor
                 predicted_gas = max(0.0, float(models["gas"].predict(input_df)[0]))
                 predicted_elec = max(0.0, float(models["elec"].predict(input_df)[0]))
-                
             else:
                 raise FileNotFoundError("Model dosyaları yüklenemedi. Klasör yollarını kontrol edin.")
                 
         except Exception as e:
-            # Gerçek hatayı takip edebilmek için st.error(e) eklendi
-               st.error(f"🚨 Pipeline Hatası Yakalandı: {e}")
-               st.warning("⚠️ Uygulama simülasyon (demo) modunda çalıştırılıyor.")
+            st.error(f"🚨 Pipeline Hatası Yakalandı: {e}")
+            st.warning("⚠️ Uygulama simülasyon (demo) modunda çalıştırılıyor.")
             
-            # Fallback / Mockup Hesaplama
-            # Pipeline tahminleri
-               gas_raw = float(models["gas"].predict(input_df)[0])
-               elec_raw = float(models["elec"].predict(input_df)[0])
-
-    # Geçici kontrol
-               st.write("Ham Gaz Tahmini:", gas_raw)
-               st.write("Ham Elektrik Tahmini:", elec_raw)
-
-               predicted_gas = max(0.0, gas_raw)
-               predicted_elec = max(0.0, elec_raw)
+            # Hata durumunda güvenli fallback mockup hesaplama
+            predicted_gas = float(order_quantity * (target_weight / 1000) * 0.12 * (oven_temp / 210))
+            predicted_elec = float(order_quantity * 0.04 * (oven_speed / 30))
     
     # Karbon Ayak İzi ve Tonaj Tabanlı Hesaplama
     total_co2 = calculate_carbon_footprint(predicted_gas, predicted_elec)
@@ -150,9 +151,11 @@ if calculate_btn:
         product_tonnage = 0.001
         
     co2_per_ton = total_co2 / product_tonnage
-    ecoscore_letter = get_ecoscore_grade(co2_per_ton)
     
-    # Yeşil Senaryo
+    # Yeni ve optimize edilmiş skala üzerinden harf notu tespiti
+    ecoscore_letter = get_optimized_ecoscore_grade(co2_per_ton)
+    
+    # Yeşil Senaryo (Yüzde 5 iyileştirme varyasyonu)
     green_gas = predicted_gas * 0.95
     green_elec = predicted_elec * 0.95
     green_co2 = calculate_carbon_footprint(green_gas, green_elec)
@@ -195,12 +198,11 @@ if calculate_btn:
         }
         
         with st.spinner("AI Ajanı reçeteyi analiz ediyor ve yeşil reçete önerileri hazırlıyor..."):
-          ai_recommendations = generate_green_recommendation(
-          siparis_detaylari=agent_inputs,
-          mevcut_co2_kg=total_co2,
-          ecoscore_harfi=ecoscore_letter,
-)
-
+            ai_recommendations = generate_green_recommendation(
+                siparis_detaylari=agent_inputs,
+                mevcut_co2_kg=total_co2,
+                ecoscore_harfi=ecoscore_letter,
+            )
             
         st.success(ai_recommendations)
 

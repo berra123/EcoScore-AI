@@ -127,12 +127,20 @@ if calculate_btn:
                 
         except Exception as e:
             # Gerçek hatayı takip edebilmek için st.error(e) eklendi
-            st.error(f"🚨 Pipeline Hatası Yakalandı: {e}")
-            st.warning("⚠️ Uygulama simülasyon (demo) modunda çalıştırılıyor.")
+               st.error(f"🚨 Pipeline Hatası Yakalandı: {e}")
+               st.warning("⚠️ Uygulama simülasyon (demo) modunda çalıştırılıyor.")
             
             # Fallback / Mockup Hesaplama
-            predicted_gas = float((oven_temp * 1.5) + (moisture_content * 500) * (order_quantity / 10000))
-            predicted_elec = float((oven_speed * 2.2) + (target_weight * 0.5) * (order_quantity / 10000))
+            # Pipeline tahminleri
+               gas_raw = float(models["gas"].predict(input_df)[0])
+               elec_raw = float(models["elec"].predict(input_df)[0])
+
+    # Geçici kontrol
+               st.write("Ham Gaz Tahmini:", gas_raw)
+               st.write("Ham Elektrik Tahmini:", elec_raw)
+
+               predicted_gas = max(0.0, gas_raw)
+               predicted_elec = max(0.0, elec_raw)
     
     # Karbon Ayak İzi ve Tonaj Tabanlı Hesaplama
     total_co2 = calculate_carbon_footprint(predicted_gas, predicted_elec)
